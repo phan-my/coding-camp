@@ -144,8 +144,7 @@ def ball_movement(np, pos):
     
     return int(pos)
 
-# send data
-async def peripheral_task(pos_y, direction_x, direction_y):
+async def __peripheral_task(pos_y, direction_x, direction_y):
     count = 0
     while True:
         print("Advertising...")
@@ -174,13 +173,15 @@ async def peripheral_task(pos_y, direction_x, direction_y):
                 pass
             print("Sent indices:", indices)
 
+            count = (count + 1) & 0x7FFF
+
             try:
                 source_conn, data = await char_rx.written() # source_conn lets you know the origin of the message
             except Exception as e:
                 print("char_rx read error:", e)
                 await asyncio.sleep(0.5)
                 continue
-            """
+
             # process incoming payload from central
             rec_indices = process_list(data)
             print("Received from central:", rec_indices)
@@ -189,12 +190,31 @@ async def peripheral_task(pos_y, direction_x, direction_y):
                 if 0 <= idx < len(ball):
                     ball[idx] = (100, 100, 100)
             ball.write()
-            """
             await asyncio.sleep(0.5)
         except Exception as e:
             print("Connection lost:", e)
-        break
 
+async def central_task():
+    print("Scanning for devices...")
+    device = None
+    async with aioble.scan(duration_ms=5000, interval_us=30000, window_us=30000, active=True) as scanner:
+        async for result in scanner:
+            print("Found:", result.name(), result.device)
+            if "Right" == result.name():
+                device = result.device
+                break
+
+    if not device:
+        print("No Right found")
+        return
+
+    print("Connecting...")
+    connection = await device.connect(timeout_ms=2000)
+    print("Connected!")
+
+    service = await connection.service(SERVICE_UUID)
+    char_tx = await service.characteristic(CHAR_TX_UUID)  # read notifications / reads from peripheral
+    char_rx = await service.characteristic(CHAR_RX_UUID)  # write to peripheral
 
 points = 0
 
@@ -204,7 +224,8 @@ while True:
         break
 """
 
-async def central_task():
+"""
+async def __central_task():
     global indices
     print("Scanning for devices...")
     device = None
@@ -245,164 +266,92 @@ async def central_task():
             return indices
         except Exception as e:
             print("Error processing payload:", e, "raw:", data)
+"""
 
-def received():
-    # read data
-    data = await char_tx.read()
-    indices = process_list(data)
-
-    # empty data
-    if not indices:
-        print("Received empty payload, skipping:", data)
-        await asyncio.sleep(0.5)
-        return 0
-
-    # process data
-    try:
-        print("Received indices:", indices)
-        return indices
-    except Exception as e:
-        print("Error processing payload:", e, "raw:", data)
-
-async def central_task():
-    global indices
-    print("Scanning for devices...")
-    device = None
-    async with aioble.scan(duration_ms=50000, interval_us=30000, window_us=30000, active=True) as scanner:
-        async for result in scanner:
-            print("Found:", result.name(), result.device)
-            if "Right" == result.name():
-                device = result.device
-                break
-
-    if not device:
-        print("No PicoAdvertiser found")
-        return
-
-    print("Connecting...")
-    connection = await device.connect(timeout_ms=2000)
-    print("Connected!")
-
-    service = await connection.service(SERVICE_UUID)
-    char_tx = await service.characteristic(CHAR_TX_UUID)  # read notifications / reads from peripheral
-    char_rx = await service.characteristic(CHAR_RX_UUID)  # write to peripheral
-
-
-    while connection.is_connected():
-        # read data
-        data = await char_tx.read()
-        indices = process_list(data)
-
-        # empty data
-        if not indices:
-            print("Received empty payload, skipping:", data)
-            await asyncio.sleep(0.5)
-            return 0
-
-        # process data
-        try:
-            print("Received indices:", indices)
-            return indices
-        except Exception as e:
-            print("Error processing payload:", e, "raw:", data)
-        
-        break
-
-while True:
-    # player movement
-    if pin_js_u.value() == 0:
-        sleep_ms(t)
-        player_pos = up(player, player_pos)
-    elif pin_js_d.value() == 0:
-        sleep_ms(t)
-        player_pos = down(player, player_pos)
-    elif pin_js_c.value() == 0:
-        sleep_ms(t)
-        color_r = random.randint(0, 0x11)
-        color_g = random.randint(0, 0x11)
-        color_b = random.randint(0, 0x11)
-    player[player_pos] = (color_r, color_g, color_b)
-    player.write()
-
-    # ball movement
+async def peripheral_task():
+    global player, player_pos, ball, ball_pos
     global direction_x, direction_y
-    global angle
+    global points
 
-    angle = random.randint(0, 1)
+    count = 0
+    while True:
+        print("Advertising...")
+        conn = await aioble.advertise(
+            500_000,
+            name="Left",
+            services=[SERVICE_UUID],
+        )
+        print("Connected to", conn.device)
 
-    """if ball_pos >= 64:
-        while 1:
-            print()"""
-    # game over
-    """
-    if get_y(ball_pos) <= get_y(player_pos):
-        print("booo")
-        print("points", points)
-        ball[ball_pos] = (0x33, 0, 0)
-    """
-    if ball_pos > 0:
-        print("ball pos", ball_pos)
-        ball_pos = ball_movement(ball, int(ball_pos))
-        ball_g = 0x33
-        ball[ball_pos] = (0, ball_g, 0)
-    else:
-        ball.fill((0,0,0))
+        try:
+            while conn.is_connected():
+                while True:
+                    # player movement
+                    if pin_js_u.value() == 0:
+                        sleep_ms(t)
+                        player_pos = up(player, player_pos)
+                    elif pin_js_d.value() == 0:
+                        sleep_ms(t)
+                        player_pos = down(player, player_pos)
+                    elif pin_js_c.value() == 0:
+                        sleep_ms(t)
+                    player[player_pos] = (random.randint(0, 0x11), random.randint(0, 0x11), random.randint(0, 0x11))
+                    player.write()
 
-    ball.write()
-    sleep_ms(100)
+                    if ball_pos > 0:
+                        print("ball pos", ball_pos)
+                        ball_pos = ball_movement(ball, int(ball_pos))
+                        ball_g = 0x33
+                        ball[ball_pos] = (0, ball_g, 0)
+                    else:
+                        ball.fill((0,0,0))
 
-    # receive ball from opponent
-    if ball_pos < -1:
-        print("here")
-        global indices
-        asyncio.run(central_task())
-        print(indices)
-        ball_pos = 8 * indices[0] + 7
-        direction_y = indices[2]
+                    ball.write()
+                    sleep_ms(100)
 
-    # send ball to opponent
-    if get_x(ball_pos) == 7 and ball_pos > 0 and direction_x == 1:
-        print("here2")
-        if get_y(ball_pos) == 7:
-            direction_y = 0
-        elif get_y(ball_pos) == 0:
-            direction_y = 1
+                    """ send ball to opponent """
+                    if get_x(ball_pos) == 7 and direction_x == 1:
+                        print("sending")
+                        if get_y(ball_pos) == 8:
+                            direction_y = 0
+                        elif get_y(ball_pos) == 0:
+                            direction_y = 1
 
-        asyncio.run(peripheral_task(get_y(ball_pos) + (direction_y * 2 - 1), direction_x, direction_y))
-        ball_pos = -1
+                        indices = [get_y(ball_pos), direction_x, direction_y]
+                        tx_message = bytes(indices)  # peripheral -> central
+                        
+                        try:
+                            char_tx.write(tx_message)
+                        except Exception as e:
+                            print("char_tx write failed:", e)
+                        try:
+                            char_tx.notify(conn, tx_message)
+                        except Exception:
+                            pass
+                        print("Sent indices:", indices)
+
+                        count = (count + 1) & 0x7FFF
+
+                        try:
+                            source_conn, data = await char_rx.written() # source_conn lets you know the origin of the message
+                        except Exception as e:
+                            print("char_rx read error:", e)
+                            await asyncio.sleep(0.5)
+                            continue
+
+                    """ receive ball from opponent """
+                    if ball_pos == -1:
+                        # process incoming payload from central
+                        rec_indices = process_list(data)
+                        ball_pos = 8 * rec_indices[0]
+                        direction_y = rec_indices[2] 
+                        direction_y = rec_indices[2] 
+                    await asyncio.sleep(0.5)
+        except Exception as e:
+            print("Connection lost:", e)
     
-    
-    """go_r = distance(player_pos, right(ai, ai_pos))
-    go_l = distance(player_pos, left(ai, ai_pos))
-    go_u = distance(player_pos, up(ai, ai_pos))
-    go_d = distance(player_pos, down(ai, ai_pos))
-
-    best_move = max(go_r, go_l, go_u, go_d)
-
-    if go_r == best_move:
-        sleep_ms(t*2)
-        ai_pos = right(ai, ai_pos)
-    elif go_l == best_move:
-        sleep_ms(t*2)
-        ai_pos = left(ai, ai_pos)
-    elif go_u == best_move:
-        sleep_ms(t*2)
-        ai_pos = up(ai, ai_pos)
-    else:
-        sleep_ms(t*2)
-        ai_pos = down(ai, ai_pos)
-
-    i = random.randint(0, 3)
-    if r == 0:
-        # right
-    if r == 1:
-        # left
-        ai_pos = left(ai, ai_pos)
-    if r == 2:
-        # up
-        ai_pos = up(ai, ai_pos)
-    if r == 3:
-        # down
-        ai_pos = down(ai, ai_pos)
-    """
-    
+service = aioble.Service(SERVICE_UUID)
+char_tx = aioble.Characteristic(service, CHAR_TX_UUID, read=True, write=True, notify=True)
+char_rx = aioble.Characteristic(service, CHAR_RX_UUID, read=True, write=True, capture=True)
+aioble.register_services(service)
+asyncio.run(peripheral_task())
