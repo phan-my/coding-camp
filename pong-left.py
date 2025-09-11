@@ -5,14 +5,20 @@ import random
 from math import sqrt, sin
 from utime import sleep_ms
 from hashlib import sha256
+import uasyncio as asyncio
+from BLECommunicator import BLECommunicator
+from zhaw_led_matrix import LedMatrix
+
 PI = 3.1415926535897932384626433
 START       = -2
 OK          = -3
 WAITING     = -4
 GAME_OVER   = -16
 
-import uasyncio as asyncio
-from BLECommunicator import BLECommunicator
+
+lm = LedMatrix(8, 8)
+winscreen = "/gg.bmp"
+
 
 """ game mechanics """
 pin = Pin(19, Pin.OUT)
@@ -242,12 +248,15 @@ async def data_watcher():
         if received_data:
             """ Do something with the received data """
             # print("Processing received data:", received_data)
-            if int(received_data["pos_y"]) != OK or int(received_data["pos_y"]) != WAITING:
+            if int(received_data["pos_y"]) >= 0 and int(received_data["pos_y"]) >= 0:
                 ball_pos = 8 * int(received_data["pos_y"]) + 7
                 direction_x = 0
                 direction_y = int(received_data["dir_y"])
                 await asyncio.sleep(0.01)
-            if received_data["pos_y"] == GAME_OVER and received_data["dir_y"] == GAME_OVER:
+            if int(received_data["pos_y"]) == GAME_OVER and int(received_data["dir_y"]) == GAME_OVER:
+                lm.draw_bitmap(winscreen)
+                lm.set_brightness(20)
+                lm.apply()
                 print("gg ez newb")
                 return 1
             received_data = None  # Reset after processing
