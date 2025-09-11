@@ -101,48 +101,58 @@ def ball_movement(np, pos):
     if get_x(pos) == 0:
         np[pos] = (0x22, 0, 0)
     elif direction_x == 0:
-        # print("l")
-        print(pos)
         pos = left(np, pos)
-        print(pos)
     
     # ball hits right edge
     if get_x(pos) == 7 and direction_x == 1:
         np[pos] = (0,0,0)
     elif direction_x == 1:
-    #    print("r")
-        print(pos)
         pos = right(np, pos)
-        print(pos)
     
     # ball hits ceil
     if get_y(pos) == 7:
         pos = down(np, pos)
+        # add random bounce
         if 2 < get_x(pos) and get_x(pos) < 7:
             pos -= 8 * angle
         direction_y = 0
     elif direction_y == 1:
-    #    print("u")
-        print(pos)
         pos = up(np, pos)
-        print(pos)
 
     # ball hits floor
     if get_y(pos) == 0:
         pos = up(np, pos)
+        # add random bounce
         if 2 < get_x(pos) and get_x(pos) < 7:
             pos += 8 * angle
         direction_y = 1
     elif direction_y == 0:
-#        print("d")
-        print(pos)
         pos = down(np, pos)
 
     # ball hits paddle
     # paddle width 
     if abs(get_y(pos) - get_y(player_pos)) <= 1 and get_x(pos) == get_x(player_pos) + 1:
         direction_x = 1
+        pos += angle
     
+    return int(pos)
+
+# player movement
+def player_movement(np, pos):
+    # player movement
+    if pin_js_u.value() == 0:
+        if pos // 8 == 7:
+            return pos
+        np[pos] = (0,0,0)
+        pos += 8
+        return pos
+    elif pin_js_d.value() == 0:
+        if pos // 8 == 0:
+            return pos
+        np[pos] = (0,0,0)
+        pos -= 8
+        return pos
+
     return int(pos)
 
 """ communications """
@@ -171,7 +181,7 @@ async def peripheral_loop():
 
         # Periodically send a reply only if central is connected
         # send ball
-        if get_x(ball_pos) == 7 and ball_pos > 0 and direction_x == 1:
+        if get_x(ball_pos) == 7 and ball_pos >= 0 and direction_x == 1:
             # print("sending")
             if get_y(ball_pos) == 8:
                 direction_y = 0
@@ -187,7 +197,11 @@ async def peripheral_loop():
         if get_x(ball_pos) == 0:
             await ble.send({"pos_y": GAME_OVER, "dir_y": GAME_OVER})
             print("GG")
-            return 0
+        
+        # reset game
+        if pin_js_c.value() == 0 and get_x(ball_pos) == 0:
+            await ble.send({"pos_y": START, "dir_y": START})
+
 
         """
         if ball_pos < 0:
@@ -210,23 +224,47 @@ async def data_watcher():
 
     ball[ball_pos] = (0, 0x33, 0)
     ball.write()
+
+    player[player_pos] = (color_r, color_g, color_b)
+    player.write()
     while True:
         # player movement
-        if pin_js_u.value() == 0:
-            sleep_ms(t)
-            player_pos = up(player, player_pos)
-        elif pin_js_d.value() == 0:
-            sleep_ms(t)
-            player_pos = down(player, player_pos)
-        elif pin_js_c.value() == 0:
-            sleep_ms(t)
+        player.write()
+        if pin_js_c.value() == 0:
             pause = False
             color_r = random.randint(0x11, 0x22)
             color_g = random.randint(0x11, 0x22)
             color_b = random.randint(0x11, 0x22)
-
-        player[player_pos] = (color_r, color_g, color_b)
+            ball.fill((0,0,0))
+            ball.write()
+        if pin_js_u.value() == 0 or pin_js_d.value() == 0:
+            player_pos = player_movement(player, int(player_pos))
+            player[player_pos] = (color_r, color_g, color_b)
+            player.write()
         player.write()
+        
+        # restart game
+        if pin_js_c.value() == 0 and dead == True:
+            color_r = 0x22
+            color_g = 0x22
+            color_b = 0x22
+            pause = True
+            dead = False
+
+            player_pos = 32
+            ball_pos = 15 + 8*random.randint(0, 5)
+
+            player[player_pos] = (color_r, color_g, color_b)
+            player.write()
+
+            start = True
+
+            r = random.randint(0, 1)
+            direction_x = 0
+            direction_y = r
+
+            ball[ball_pos] = (0, 0x33, 0)
+            ball.write()
 
         # ball movement
         if ball_pos >= 0 and not pause and not dead and not (get_x(ball_pos) == 7 and direction_x == 1):
@@ -234,10 +272,12 @@ async def data_watcher():
             ball_pos = ball_movement(ball, int(ball_pos))
             ball[ball_pos] = (0, 0x33, 0)
             ball.write()
+            #player.write()
         if get_x(ball_pos) == 7 and direction_x == 1:
-            ball.fill((0,0,0))
+            ball[ball_pos] = (0, 0, 0)
             ball.write()
-
+            #player.write()
+        
         # death
         if get_x(ball_pos) == 0:
             dead = True
@@ -258,7 +298,6 @@ async def data_watcher():
                 lm.set_brightness(20)
                 lm.apply()
                 print("gg ez newb")
-                return 1
             received_data = None  # Reset after processing
         await asyncio.sleep(0.1)
 
