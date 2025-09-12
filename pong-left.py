@@ -225,6 +225,8 @@ async def data_watcher():
     ball[ball_pos] = (0, 0x33, 0)
     ball.write()
 
+    t = 0
+
     player[player_pos] = (color_r, color_g, color_b)
     player.write()
     while True:
@@ -232,9 +234,9 @@ async def data_watcher():
         player.write()
         if pin_js_c.value() == 0:
             pause = False
-            color_r = random.randint(0x11, 0x22)
-            color_g = random.randint(0x11, 0x22)
-            color_b = random.randint(0x11, 0x22)
+            color_r = random.randint(0x33, 0x66)
+            color_g = random.randint(0x33, 0x66)
+            color_b = random.randint(0x33, 0x66)
             ball.fill((0,0,0))
             ball.write()
         if pin_js_u.value() == 0 or pin_js_d.value() == 0:
@@ -292,14 +294,15 @@ async def data_watcher():
                 ball_pos = 8 * int(received_data["pos_y"]) + 7
                 direction_x = 0
                 direction_y = int(received_data["dir_y"])
+                t += 0.01
                 await asyncio.sleep(0.01)
             if int(received_data["pos_y"]) == GAME_OVER and int(received_data["dir_y"]) == GAME_OVER:
                 lm.draw_bitmap(winscreen)
                 lm.set_brightness(20)
                 lm.apply()
-                print("gg ez newb")
+                print("gg ez")
             received_data = None  # Reset after processing
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.15 - t)
 
 async def main():
     await asyncio.gather(
