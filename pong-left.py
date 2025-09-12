@@ -253,6 +253,8 @@ async def data_watcher():
             pause = True
             dead = False
 
+            player[player_pos] = (0,0,0)
+
             player_pos = 32
             ball_pos = 15 + 8*random.randint(0, 5)
 
@@ -294,7 +296,7 @@ async def data_watcher():
                 ball_pos = 8 * int(received_data["pos_y"]) + 7
                 direction_x = 0
                 direction_y = int(received_data["dir_y"])
-                t += 0.01
+                # t += 0.001
                 await asyncio.sleep(0.01)
             if int(received_data["pos_y"]) == GAME_OVER and int(received_data["dir_y"]) == GAME_OVER:
                 lm.draw_bitmap(winscreen)
@@ -302,7 +304,7 @@ async def data_watcher():
                 lm.apply()
                 print("gg ez")
             received_data = None  # Reset after processing
-        await asyncio.sleep(0.15 - t)
+        await asyncio.sleep(0.3 - t)
 
 async def main():
     await asyncio.gather(
